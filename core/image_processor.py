@@ -285,34 +285,421 @@ class ImageProcessor:
     @staticmethod
     def correct_perspective(image, pts_src):
         """
-        图像校正 - 透视变换
+        图像校正 - 旋转并裁剪矩形
+        将倾斜矩形旋转到水平位置，并裁剪出矩形区域
         pts_src: 源图像中的四个点坐标 [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
+                 顺序：左上、右上、右下、左下
         """
-        # 计算输出图像的宽度和高度
+        # 计算矩形的倾斜角度（使用上边的两个点）
+        pt1, pt2 = pts_src[0], pts_src[1]  # 左上、右上
+        
+        # 计算角度（弧度转角度）
+        dx = pt2[0] - pt1[0]
+        dy = pt2[1] - pt1[1]
+        angle = np.degrees(np.arctan2(dy, dx))
+        
+        # 计算旋转中心（矩形中心）
         pts = np.array(pts_src, dtype=np.float32)
+        center_x = float(np.mean(pts[:, 0]))
+        center_y = float(np.mean(pts[:, 1]))
+        center = (center_x, center_y)
         
-        # 计算矩形的宽度和高度
-        width = int(max(
-            np.linalg.norm(pts[0] - pts[1]),
-            np.linalg.norm(pts[2] - pts[3])
-        ))
-        height = int(max(
-            np.linalg.norm(pts[0] - pts[3]),
-            np.linalg.norm(pts[1] - pts[2])
-        ))
+        # 获取旋转矩阵
+        height, width = image.shape[:2]
+        rotation_matrix = cv2.getRotationMatrix2D(center, -angle, 1.0)
         
-        # 目标点
-        pts_dst = np.array([
-            [0, 0],
-            [width - 1, 0],
-            [width - 1, height - 1],
-            [0, height - 1]
-        ], dtype=np.float32)
+        # 计算旋转后的图像边界
+        cos = np.abs(rotation_matrix[0, 0])
+        sin = np.abs(rotation_matrix[0, 1])
+        new_width = int((height * sin) + (width * cos))
+        new_height = int((height * cos) + (width * sin))
         
-        # 计算透视变换矩阵
-        matrix = cv2.getPerspectiveTransform(pts, pts_dst)
+        # 调整旋转矩阵的平移部分
+        rotation_matrix[0, 2] += (new_width / 2) - center_x
+        rotation_matrix[1, 2] += (new_height / 2) - center_y
         
-        # 应用透视变换
-        corrected = cv2.warpPerspective(image, matrix, (width, height))
+        # 应用旋转变换
+        rotated = cv2.warpAffine(image, rotation_matrix, (new_width, new_height),
+                                 flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT,
+                                 borderValue=(255, 255, 255))
         
-        return corrected
+        # 计算旋转后的矩形四个角点位置
+        ones = np.ones(shape=(len(pts), 1))
+        points_ones = np.hstack([pts, ones])
+        transformed_points = rotation_matrix.dot(points_ones.T).T
+        
+        # 找到旋转后矩形的边界
+        x_coords = transformed_points[:, 0]
+        y_coords = transformed_points[:, 1]
+        
+        x_min = int(np.min(x_coords))
+        x_max = int(np.max(x_coords))
+        y_min = int(np.min(y_coords))
+        y_max = int(np.max(y_coords))
+        
+        # 确保裁剪区域在图像范围内
+        x_min = max(0, x_min)
+        y_min = max(0, y_min)
+        x_max = min(new_width, x_max)
+        y_max = min(new_height, y_max)
+        
+        # 裁剪出矩形区域
+        if x_max > x_min and y_max > y_min:
+            cropped = rotated[y_min:y_max, x_min:x_max]
+            return cropped
+        else:
+            return rotated
+    
+    # ==================== 实验三：高级图像处理 ====================
+    
+    @staticmethod
+    def hough_lines(image, canny_low=50, canny_high=150, threshold=100):
+        """
+        使用Hough变换检测直线
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 边缘检测
+        edges = cv2.Canny(gray, canny_low, canny_high)
+        
+        # Hough直线检测
+        lines = cv2.HoughLines(edges, 1, np.pi/180, threshold)
+        
+        # 在原图上绘制直线
+        result = image.copy()
+        if lines is not None:
+            for rho, theta in lines[:, 0]:
+                a = np.cos(theta)
+                b = np.sin(theta)
+                x0 = a * rho
+                y0 = b * rho
+                # 计算直线的两个端点
+                x1 = int(x0 + 1000 * (-b))
+                y1 = int(y0 + 1000 * (a))
+                x2 = int(x0 - 1000 * (-b))
+                y2 = int(y0 - 1000 * (a))
+                # 绘制直线（绿色高亮）
+                cv2.line(result, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
+        return result
+    
+    @staticmethod
+    def hough_circles(image, min_radius=10, max_radius=100):
+        """
+        使用Hough变换检测圆形
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 高斯模糊
+        gray_blur = cv2.GaussianBlur(gray, (9, 9), 2)
+        
+        # Hough圆检测
+        circles = cv2.HoughCircles(
+            gray_blur,
+            cv2.HOUGH_GRADIENT,
+            dp=1,
+            minDist=50,
+            param1=100,
+            param2=30,
+            minRadius=min_radius,
+            maxRadius=max_radius
+        )
+        
+        # 在原图上绘制圆形
+        result = image.copy()
+        if circles is not None:
+            circles = np.round(circles[0, :]).astype(int)
+            for x, y, r in circles:
+                # 绘制圆形轮廓（红色高亮）
+                cv2.circle(result, (x, y), r, (0, 0, 255), 3)
+                # 绘制圆心
+                cv2.circle(result, (x, y), 2, (255, 0, 0), 3)
+        
+        return result
+    
+    @staticmethod
+    def fourier_transform(image):
+        """
+        计算傅里叶变换并展示幅度谱
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 计算傅里叶变换
+        f = np.fft.fft2(gray)
+        fshift = np.fft.fftshift(f)
+        
+        # 计算幅度谱
+        magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
+        
+        # 归一化到0-255
+        magnitude_spectrum = np.uint8(255 * magnitude_spectrum / np.max(magnitude_spectrum))
+        
+        return magnitude_spectrum
+    
+    @staticmethod
+    def detect_circle_defects(image):
+        """
+        检测完整圆形中的缺陷和多余小块，并计算缺陷面积
+        返回: (结果图像, 缺陷信息字典)
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 二值化
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 检测轮廓
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # 找到最大的圆形区域（认为是主圆）
+        if len(contours) == 0:
+            defect_info = {
+                'defect_count': 0,
+                'total_area': 0,
+                'areas': []
+            }
+            return image.copy(), defect_info
+        
+        main_contour = max(contours, key=cv2.contourArea)
+        main_area = cv2.contourArea(main_contour)
+        
+        # 创建主圆的掩膜
+        mask = np.zeros_like(gray)
+        cv2.drawContours(mask, [main_contour], -1, 255, -1)
+        
+        # 检测缺陷（主圆内部的黑色区域）
+        defects = cv2.bitwise_not(binary) & mask
+        
+        # 找到缺陷轮廓
+        defect_contours, _ = cv2.findContours(defects, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # 过滤小噪声
+        min_defect_area = 10
+        valid_defects = [cnt for cnt in defect_contours if cv2.contourArea(cnt) > min_defect_area]
+        
+        # 计算缺陷面积
+        defect_areas = [cv2.contourArea(cnt) for cnt in valid_defects]
+        total_area = sum(defect_areas)
+        
+        # 绘制结果
+        result = image.copy()
+        if len(image.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        
+        # 绘制主圆轮廓（绿色）
+        cv2.drawContours(result, [main_contour], -1, (0, 255, 0), 2)
+        
+        # 绘制缺陷（红色高亮）
+        cv2.drawContours(result, valid_defects, -1, (0, 0, 255), -1)
+        cv2.drawContours(result, valid_defects, -1, (255, 0, 0), 2)
+        
+        defect_info = {
+            'defect_count': len(valid_defects),
+            'total_area': int(total_area),
+            'areas': [int(area) for area in defect_areas]
+        }
+        
+        return result, defect_info
+    
+    @staticmethod
+    def detect_scratches(image, kernel_size=5, threshold=30):
+        """
+        使用形态学、边缘检测和颜色差异检测材料表面划痕
+        能够检测明显色彩差别的曲线划痕
+        """
+        result = image.copy()
+        if len(result.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 方法1: 使用Canny边缘检测 + 形态学处理检测曲线划痕
+        # 1. 高斯模糊降噪
+        blurred = cv2.GaussianBlur(gray, (5, 5), 1)
+        
+        # 2. Canny边缘检测（能检测到颜色差异明显的边界）
+        edges = cv2.Canny(blurred, 30, 100)
+        
+        # 3. 使用线性结构元素连接线条形划痕
+        # 水平线条检测
+        kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
+        detected_h = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_h)
+        
+        # 垂直线条检测
+        kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 15))
+        detected_v = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_v)
+        
+        # 对角线条检测
+        kernel_d1 = np.array([[1, 0, 0, 0, 0],
+                              [0, 1, 0, 0, 0],
+                              [0, 0, 1, 0, 0],
+                              [0, 0, 0, 1, 0],
+                              [0, 0, 0, 0, 1]], dtype=np.uint8)
+        detected_d1 = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_d1)
+        
+        kernel_d2 = np.array([[0, 0, 0, 0, 1],
+                              [0, 0, 0, 1, 0],
+                              [0, 0, 1, 0, 0],
+                              [0, 1, 0, 0, 0],
+                              [1, 0, 0, 0, 0]], dtype=np.uint8)
+        detected_d2 = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel_d2)
+        
+        # 合并所有方向的线条
+        scratches_canny = cv2.bitwise_or(detected_h, detected_v)
+        scratches_canny = cv2.bitwise_or(scratches_canny, detected_d1)
+        scratches_canny = cv2.bitwise_or(scratches_canny, detected_d2)
+        
+        # 方法2: 使用形态学顶帽/黑帽变换检浌亮暗划痕
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+        tophat = cv2.morphologyEx(blurred, cv2.MORPH_TOPHAT, kernel)
+        blackhat = cv2.morphologyEx(blurred, cv2.MORPH_BLACKHAT, kernel)
+        scratches_morph = cv2.add(tophat, blackhat)
+        
+        # 对形态学结果二值化
+        _, binary_morph = cv2.threshold(scratches_morph, threshold, 255, cv2.THRESH_BINARY)
+        
+        # 方法3: 颜色空间分析（对彩色图像）
+        if len(image.shape) == 3:
+            # 转换到LAB颜色空间，对颜色差异更敏感
+            lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            
+            # 对a和b通道进行边缘检测（检测颜色变化）
+            a_edges = cv2.Canny(cv2.GaussianBlur(a, (3, 3), 0), 20, 60)
+            b_edges = cv2.Canny(cv2.GaussianBlur(b, (3, 3), 0), 20, 60)
+            color_edges = cv2.bitwise_or(a_edges, b_edges)
+            
+            # 用线性结构元素连接颜色边缘
+            kernel_line = cv2.getStructuringElement(cv2.MORPH_RECT, (10, 1))
+            color_scratches_h = cv2.morphologyEx(color_edges, cv2.MORPH_CLOSE, kernel_line)
+            
+            kernel_line_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 10))
+            color_scratches_v = cv2.morphologyEx(color_edges, cv2.MORPH_CLOSE, kernel_line_v)
+            
+            color_scratches = cv2.bitwise_or(color_scratches_h, color_scratches_v)
+        else:
+            color_scratches = np.zeros_like(gray)
+        
+        # 合并所有检测结果
+        final_scratches = cv2.bitwise_or(scratches_canny, binary_morph)
+        final_scratches = cv2.bitwise_or(final_scratches, color_scratches)
+        
+        # 形态学操作优化：去除小噪点，连接断开的线条
+        kernel_clean = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        final_scratches = cv2.morphologyEx(final_scratches, cv2.MORPH_CLOSE, kernel_clean)
+        final_scratches = cv2.morphologyEx(final_scratches, cv2.MORPH_OPEN, kernel_clean)
+        
+        # 过滤小区域（去除噪声）
+        contours, _ = cv2.findContours(final_scratches, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mask = np.zeros_like(final_scratches)
+        for cnt in contours:
+            # 保留面积较大或长宽比较大的区域（划痕特征）
+            area = cv2.contourArea(cnt)
+            x, y, w, h = cv2.boundingRect(cnt)
+            aspect_ratio = max(w, h) / (min(w, h) + 1)
+            
+            # 划痕通常是狭长的
+            if area > 20 or aspect_ratio > 3:
+                cv2.drawContours(mask, [cnt], -1, 255, -1)
+        
+        # 将划痕区域高亮显示（红色）
+        result[mask > 0] = [0, 0, 255]
+        
+        # 额外绘制轮廓使划痕更明显
+        cv2.drawContours(result, contours, -1, (255, 0, 0), 1)
+        
+        return result
+    
+    @staticmethod
+    def detect_pcb_defects(image, defect_type='全部缺陷'):
+        """
+        检测PCB缺陷：毛刺、短路、断路
+        返回: (结果图像, 缺陷信息字典)
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 二值化
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        result = image.copy()
+        if len(result.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        
+        defect_info = {}
+        
+        # 检测毛刺（小的突出物）
+        if defect_type in ['全部缺陷', '毛刺']:
+            # 使用开运算去除小突起
+            kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_small)
+            burrs = cv2.subtract(binary, opened)
+            
+            # 查找毛刺轮廓
+            contours, _ = cv2.findContours(burrs, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            burr_count = len([cnt for cnt in contours if cv2.contourArea(cnt) > 5])
+            
+            # 绘制毛刺（黄色）
+            cv2.drawContours(result, contours, -1, (0, 255, 255), 2)
+            defect_info['毛刺数量'] = burr_count
+        
+        # 检测短路（意外连接的线路）
+        if defect_type in ['全部缺陷', '短路']:
+            # 使用闭运算检测短路
+            kernel_medium = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+            closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_medium)
+            shorts = cv2.subtract(closed, binary)
+            
+            # 查找短路区域
+            contours, _ = cv2.findContours(shorts, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            short_count = len([cnt for cnt in contours if cv2.contourArea(cnt) > 10])
+            
+            # 绘制短路（橙色）
+            cv2.drawContours(result, contours, -1, (0, 165, 255), 2)
+            defect_info['短路数量'] = short_count
+        
+        # 检测断路（线路中的间隙）
+        if defect_type in ['全部缺陷', '断路']:
+            # 使用形态学梯度检测边缘
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            gradient = cv2.morphologyEx(binary, cv2.MORPH_GRADIENT, kernel)
+            
+            # 检测线路上的间隙
+            _, gap_binary = cv2.threshold(gradient, 50, 255, cv2.THRESH_BINARY)
+            
+            # 查找断路位置
+            contours, _ = cv2.findContours(gap_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            gap_count = len([cnt for cnt in contours if cv2.contourArea(cnt) > 5])
+            
+            # 绘制断路（红色）
+            for cnt in contours:
+                if cv2.contourArea(cnt) > 5:
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    cv2.rectangle(result, (x, y), (x+w, y+h), (0, 0, 255), 2)
+            
+            defect_info['断路数量'] = gap_count
+        
+        return result, defect_info

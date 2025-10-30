@@ -37,7 +37,7 @@ class Experiment1Panel(QWidget):
         self.shapes_drawn = []
         
         # 图像校正相关
-        self.correction_points = []
+        self.correction_points = [] 
         
         self.init_ui()
     
@@ -657,7 +657,7 @@ class Experiment1Panel(QWidget):
         load_btn = QPushButton('加载图片')
         load_btn.clicked.connect(self.load_image_for_task)
         
-        info_label = QLabel('请在图像上点击三个点定义倾斜矩形（左上、右上、右下）')
+        info_label = QLabel('请在图像上点击三个点定义倾斜矩形(左上、右上、右下)，系统将旋转并裁剪出摆正的矩形')
         info_label.setWordWrap(True)
         info_label.setStyleSheet('border: none;')
         

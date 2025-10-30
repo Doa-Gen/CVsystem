@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from .styles import get_style, COLORS
 from .experiment1 import Experiment1Panel
 from .experiment2 import Experiment2Panel
+from .experiment3 import Experiment3Panel
 
 
 class MainWindow(QMainWindow):
@@ -48,6 +49,10 @@ class MainWindow(QMainWindow):
         # 实验二面板
         self.exp2_panel = Experiment2Panel(self)
         self.content_stack.addWidget(self.exp2_panel)
+        
+        # 实验三面板
+        self.exp3_panel = Experiment3Panel(self)
+        self.content_stack.addWidget(self.exp3_panel)
         
         main_layout.addWidget(self.content_stack)
         
@@ -105,7 +110,7 @@ class MainWindow(QMainWindow):
         exp_label = QLabel('实验:')
         exp_label.setStyleSheet("border: none; padding: 0;")
         self.experiment_combo = QComboBox()
-        self.experiment_combo.addItems(['请选择实验', '实验一：基础图像处理', '实验二：图像增强'])
+        self.experiment_combo.addItems(['请选择实验', '实验一：基础图像处理', '实验二：图像增强', '实验三：高级图像处理'])
         self.experiment_combo.setFixedWidth(200)
         self.experiment_combo.currentIndexChanged.connect(self.on_experiment_changed)
         
@@ -159,6 +164,16 @@ class MainWindow(QMainWindow):
                 '低通滤波',
                 '目标寻找'
             ])
+        elif index == 3:  # 实验三
+            self.task_combo.setEnabled(True)
+            self.task_combo.addItems([
+                '请选择任务',
+                'Hough变换检测',
+                '傅里叶变换',
+                '缺陷检测',
+                '划痕检测',
+                'PCB检测'
+            ])
     
     def on_task_changed(self, index):
         """任务选择改变"""
@@ -175,6 +190,10 @@ class MainWindow(QMainWindow):
         elif exp_index == 2:  # 实验二
             self.content_stack.setCurrentWidget(self.exp2_panel)
             self.exp2_panel.set_task(index)
+        
+        elif exp_index == 3:  # 实验三
+            self.content_stack.setCurrentWidget(self.exp3_panel)
+            self.exp3_panel.set_task(index)
     
     def export_image(self):
         """导出图片"""
