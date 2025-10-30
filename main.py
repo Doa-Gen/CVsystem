@@ -1,0 +1,21 @@
+"""
+图像处理学习平台
+主入口文件
+"""
+import sys
+from PyQt5.QtWidgets import QApplication
+from ui.main_window import MainWindow
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')  # 使用Fusion风格作为基础
+    
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()
