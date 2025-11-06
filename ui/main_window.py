@@ -152,7 +152,9 @@ class MainWindow(QMainWindow):
                 '图像格式转换',
                 '图像读写测试',
                 '图片融合',
-                '图像校正'
+                '颜色阈值抠图',
+                '图像校正',
+                '布匹裁剪分割线识别'
             ])
         elif index == 2:  # 实验二
             self.task_combo.setEnabled(True)

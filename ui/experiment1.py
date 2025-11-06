@@ -5,7 +5,7 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QScrollArea, QFileDialog,
                              QMessageBox, QLineEdit, QComboBox, QGroupBox,
-                             QGridLayout, QSpinBox)
+                             QGridLayout, QSpinBox, QTextEdit)
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QPainter, QPen, QColor, QPixmap, QImage
 import cv2
@@ -132,7 +132,9 @@ class Experiment1Panel(QWidget):
             2: ('图像格式转换', self.setup_format_controls),
             3: ('图像读写测试', self.setup_readwrite_controls),
             4: ('图片融合', self.setup_blend_controls),
-            5: ('图像校正', self.setup_correction_controls),
+            5: ('颜色阈值抠图', self.setup_color_threshold_controls),
+            6: ('图像校正', self.setup_correction_controls),
+            7: ('布匹裁剪分割线识别', self.setup_fabric_cut_controls),
         }
         
         if task_index in tasks:
@@ -166,11 +168,16 @@ class Experiment1Panel(QWidget):
         save_btn = QPushButton('保存当前帧')
         save_btn.clicked.connect(self.save_current_frame)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('摄像头调用'))
+        
         self.controls_layout.addWidget(open_btn)
         self.controls_layout.addWidget(pause_btn)
         self.controls_layout.addWidget(capture_btn)
         self.controls_layout.addWidget(close_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def open_camera(self):
         """打开摄像头"""
@@ -242,10 +249,15 @@ class Experiment1Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('RGB转Gray'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(gray_btn)
         self.controls_layout.addWidget(hsv_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def convert_to_gray(self):
         """RGB转灰度"""
@@ -362,17 +374,22 @@ class Experiment1Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('图像读写'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(info_group)
         self.controls_layout.addWidget(draw_group)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def on_mouse_moved(self, pos, pixel_pos):
         """鼠标移动事件"""
         if hasattr(self, 'pixel_info_label') and self.original_image is not None:
             if 0 <= pixel_pos.x() < self.original_image.shape[1] and 0 <= pixel_pos.y() < self.original_image.shape[0]:
                 pixel_value = self.original_image[pixel_pos.y(), pixel_pos.x()]
-                # 处理灰度图、彩色图咁4通道图
+                # 处理灰度图、彩色图4通道图
                 if len(self.original_image.shape) == 2 or isinstance(pixel_value, (int, np.integer)):
                     # 灰度图
                     gray = int(pixel_value)
@@ -402,11 +419,14 @@ class Experiment1Panel(QWidget):
                 self.drawing_points.append((pixel_pos.x(), pixel_pos.y()))
                 self.process_drawing()
         
-        # 图像校正点击（3个点）
-        if self.current_task == 5 and self.original_image is not None:
+        # 图像校正点击（4个点）
+        if self.current_task == 6 and self.original_image is not None:
             if 0 <= pixel_pos.x() < self.original_image.shape[1] and 0 <= pixel_pos.y() < self.original_image.shape[0]:
                 self.correction_points.append((pixel_pos.x(), pixel_pos.y()))
-                if len(self.correction_points) == 3:
+                # 更新点数显示
+                if hasattr(self, 'points_status_label'):
+                    self.points_status_label.setText(f'已选择: {len(self.correction_points)}/4 个点')
+                if len(self.correction_points) == 4:
                     self.apply_correction()
     
     def set_drawing_mode(self, mode):
@@ -515,7 +535,7 @@ class Experiment1Panel(QWidget):
     # ==================== 任务4：图片融合 ====================
     
     def setup_blend_controls(self):
-        """设置融合控制"""
+        """设置融合控制（只保留透明度融合）"""
         load_btn1 = QPushButton('加载图片1')
         load_btn1.clicked.connect(self.load_image_for_task)
         
@@ -538,10 +558,62 @@ class Experiment1Panel(QWidget):
         blend_layout.addWidget(blend_btn)
         blend_group.setLayout(blend_layout)
         
-        # 颜色阈值抠图
-        threshold_group = QGroupBox('颜色阈值抠图')
-        threshold_layout = QVBoxLayout()
+        save_btn = QPushButton('导出结果')
+        save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('图像融合'))
+        
+        self.controls_layout.addWidget(load_btn1)
+        self.controls_layout.addWidget(load_btn2)
+        self.controls_layout.addWidget(blend_group)
+        self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
+    
+    def load_second_image(self):
+        """加载第二张图片"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, '加载图片2', '', 
+            'Images (*.png *.jpg *.bmp *.jpeg)'
+        )
+        if file_path:
+            self.second_image = imread_chinese(file_path)
+            if self.second_image is None:
+                QMessageBox.warning(self, '错误', '无法读取图片，请检查文件路径')
+            else:
+                QMessageBox.information(self, '成功', '图片2已加载')
+    
+    def blend_images(self):
+        """透明度融合"""
+        if self.original_image is None or not hasattr(self, 'second_image') or self.second_image is None:
+            QMessageBox.warning(self, '警告', '请先加载两张图片')
+            return
+        
+        try:
+            alpha = float(self.alpha_input.text())
+            if not 0 <= alpha <= 1:
+                raise ValueError
+        except:
+            QMessageBox.warning(self, '警告', '透明度必须在0-1之间')
+            return
+        
+        self.processed_image = ImageProcessor.blend_images(
+            self.original_image, self.second_image, alpha
+        )
+        self.update_display()
+    
+    # ==================== 任务5：颜色阈值抠图 ====================
+    
+    def setup_color_threshold_controls(self):
+        """设置颜色阈值抠图控制"""
+        load_btn1 = QPushButton('加载前景图片')
+        load_btn1.clicked.connect(self.load_image_for_task)
+        
+        load_btn2 = QPushButton('加载背景图片')
+        load_btn2.clicked.connect(self.load_second_image)
+        
+        # 颜色空间选择
         color_space_layout = QHBoxLayout()
         color_space_layout.addWidget(QLabel('颜色空间:'))
         self.color_space_combo = QComboBox()
@@ -577,55 +649,48 @@ class Experiment1Panel(QWidget):
         upper_layout.addWidget(self.upper_2)
         upper_layout.addWidget(self.upper_3)
         
-        threshold_btn = QPushButton('确认抠图融合')
-        threshold_btn.clicked.connect(self.threshold_blend)
+        threshold_btn = QPushButton('生成掩码')
+        threshold_btn.clicked.connect(self.generate_color_mask)
         
-        threshold_layout.addLayout(color_space_layout)
-        threshold_layout.addLayout(lower_layout)
-        threshold_layout.addLayout(upper_layout)
-        threshold_layout.addWidget(threshold_btn)
-        threshold_group.setLayout(threshold_layout)
+        blend_btn = QPushButton('应用抠图融合')
+        blend_btn.clicked.connect(self.threshold_blend)
         
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('颜色阈值抠图'))
+        
         self.controls_layout.addWidget(load_btn1)
         self.controls_layout.addWidget(load_btn2)
-        self.controls_layout.addWidget(blend_group)
-        self.controls_layout.addWidget(threshold_group)
+        self.controls_layout.addLayout(color_space_layout)
+        self.controls_layout.addLayout(lower_layout)
+        self.controls_layout.addLayout(upper_layout)
+        self.controls_layout.addWidget(threshold_btn)
+        self.controls_layout.addWidget(blend_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
-    def load_second_image(self):
-        """加载第二张图片"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, '加载图片2', '', 
-            'Images (*.png *.jpg *.bmp *.jpeg)'
-        )
-        if file_path:
-            self.second_image = imread_chinese(file_path)
-            if self.second_image is None:
-                QMessageBox.warning(self, '错误', '无法读取图片，请检查文件路径')
-            else:
-                QMessageBox.information(self, '成功', '图片2已加载')
-    
-    def blend_images(self):
-        """透明度融合"""
-        if self.original_image is None or not hasattr(self, 'second_image') or self.second_image is None:
-            QMessageBox.warning(self, '警告', '请先加载两张图片')
+    def generate_color_mask(self):
+        """生成颜色阈值掩码"""
+        if self.original_image is None:
+            QMessageBox.warning(self, '警告', '请先加载前景图片')
             return
         
-        try:
-            alpha = float(self.alpha_input.text())
-            if not 0 <= alpha <= 1:
-                raise ValueError
-        except:
-            QMessageBox.warning(self, '警告', '透明度必须在0-1之间')
-            return
+        lower = np.array([self.lower_1.value(), self.lower_2.value(), self.lower_3.value()])
+        upper = np.array([self.upper_1.value(), self.upper_2.value(), self.upper_3.value()])
         
-        self.processed_image = ImageProcessor.blend_images(
-            self.original_image, self.second_image, alpha
-        )
+        color_space = self.color_space_combo.currentText()
+        
+        # 生成掩码
+        mask = ImageProcessor.color_threshold_mask(self.original_image, lower, upper, color_space)
+        
+        # 显示掩码（转换为3通道显示）
+        self.processed_image = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         self.update_display()
+        
+        QMessageBox.information(self, '成功', '掩码已生成，白色区域为选中区域')
     
     def threshold_blend(self):
         """颜色阈值抠图融合"""
@@ -644,9 +709,21 @@ class Experiment1Panel(QWidget):
         # 调整第二张图片大小
         img2 = ImageProcessor.resize_and_center(self.second_image, self.original_image.shape[:2])
         
+        # 确保所有图像都是3通道
+        img1 = self.original_image
+        if len(img1.shape) == 3 and img1.shape[2] == 4:
+            img1 = cv2.cvtColor(img1, cv2.COLOR_BGRA2BGR)
+        if len(img2.shape) == 3 and img2.shape[2] == 4:
+            img2 = cv2.cvtColor(img2, cv2.COLOR_BGRA2BGR)
+        
         # 应用掩码融合
-        mask_3channel = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-        self.processed_image = (self.original_image * mask_3channel + img2 * (1 - mask_3channel)).astype(np.uint8)
+        # 将mask转换为3通道并归一化为float
+        mask_3channel = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR).astype(np.float32) / 255.0
+        # 将图像转换为float进行计算，避免溢出
+        img1_float = img1.astype(np.float32)
+        img2_float = img2.astype(np.float32)
+        # 融合计算
+        self.processed_image = (img1_float * mask_3channel + img2_float * (1 - mask_3channel)).astype(np.uint8)
         
         self.update_display()
     
@@ -657,9 +734,13 @@ class Experiment1Panel(QWidget):
         load_btn = QPushButton('加载图片')
         load_btn.clicked.connect(self.load_image_for_task)
         
-        info_label = QLabel('请在图像上点击三个点定义倾斜矩形(左上、右上、右下)，系统将旋转并裁剪出摆正的矩形')
+        info_label = QLabel('请按顺序点击图像上值斜矩形的4个角点：\n1.左上角 2.右上角 3.右下角 4.左下角\n系统将自动进行透视变换校正')
         info_label.setWordWrap(True)
-        info_label.setStyleSheet('border: none;')
+        info_label.setStyleSheet('border: none; padding: 5px;')
+                
+        # 显示当前选择的点数
+        self.points_status_label = QLabel('已选择: 0/4 个点')
+        self.points_status_label.setStyleSheet('border: none; color: #0969da; font-weight: bold;')
         
         reset_btn = QPushButton('重置点')
         reset_btn.clicked.connect(self.reset_correction_points)
@@ -667,41 +748,79 @@ class Experiment1Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('图像校正'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(info_label)
+        self.controls_layout.addWidget(self.points_status_label)
         self.controls_layout.addWidget(reset_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
         
         self.correction_points = []
     
     def reset_correction_points(self):
         """重置校正点"""
         self.correction_points = []
-        QMessageBox.information(self, '提示', '已重置，请重新选择三个点（左上、右上、右下）')
+        if hasattr(self, 'points_status_label'):
+            self.points_status_label.setText('已选择: 0/4 个点')
+        QMessageBox.information(self, '提示', '已重置，请按顺序选择4个点（左上、右上、右下、左下）')
     
     def apply_correction(self):
         """应用校正"""
-        if len(self.correction_points) != 3:
+        if len(self.correction_points) != 4:
             return
         
-        pt1, pt2, pt3 = self.correction_points
-        
-        # 三个点定义倾斜矩形：左上、右上、右下
-        # 计算左下点
-        pt4 = (pt1[0], pt3[1])
-        
-        pts_src = [
-            pt1,  # 左上
-            pt2,  # 右上
-            pt3,  # 右下
-            pt4   # 左下
-        ]
+        # 四个点定义倾斜矩形：左上、右上、右下、左下
+        pts_src = self.correction_points
         
         self.processed_image = ImageProcessor.correct_perspective(self.original_image, pts_src)
         self.update_display()
         
         QMessageBox.information(self, '成功', '图像校正完成')
         self.correction_points = []
+        if hasattr(self, 'points_status_label'):
+            self.points_status_label.setText('已选择: 0/4 个点')
+    
+    # ==================== 任务7：布匹裁剪分割线识别 ====================
+    
+    def setup_fabric_cut_controls(self):
+        """设置布匹裁剪分割线识别控制"""
+        load_btn = QPushButton('加载布匹图片')
+        load_btn.clicked.connect(self.load_image_for_task)
+        
+        info_label = QLabel('系统将基于颜色差异分析，\n自动识别褥皱区域并标记最佳裁剪位置\n（红色线为主分割线，黄色线为辅助参考）')
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet('border: none; padding: 5px;')
+        
+        detect_btn = QPushButton('识别分割线')
+        detect_btn.clicked.connect(self.detect_fabric_cut_line)
+        
+        save_btn = QPushButton('导出结果')
+        save_btn.clicked.connect(self.save_processed_image)
+        
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('布匹裁剪分割'))
+        
+        self.controls_layout.addWidget(load_btn)
+        self.controls_layout.addWidget(info_label)
+        self.controls_layout.addWidget(detect_btn)
+        self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
+    
+    def detect_fabric_cut_line(self):
+        """识别布匹裁剪分割线"""
+        if self.original_image is None:
+            QMessageBox.warning(self, '警告', '请先加载布匹图片')
+            return
+        
+        self.processed_image = ImageProcessor.detect_fabric_cut_line(self.original_image)
+        self.update_display()
+        
+        QMessageBox.information(self, '成功', '分割线识别完成！\n红色线：主分割线（推荐裁剪位置）\n黄色线：辅助参考线（颜色变化点）')
     
     # ==================== 通用方法 ====================
     
@@ -723,6 +842,7 @@ class Experiment1Panel(QWidget):
         self.processed_image = None
         self.shapes_drawn = []
         self.update_display()
+        
     
     def update_display(self):
         """更新显示"""
@@ -752,6 +872,11 @@ class Experiment1Panel(QWidget):
                 QMessageBox.information(self, '成功', f'图片已保存到: {file_path}')
             else:
                 QMessageBox.warning(self, '错误', '图片保存失败')
+    
+    def show_algorithm(self, algorithm_name):
+        """显示算法窗口"""
+        dialog = AlgorithmWindow(algorithm_name, self)
+        dialog.show_window()
 
 
 class ImageDisplayLabel(QLabel):
@@ -848,6 +973,288 @@ class ChannelsWindow(QWidget):
             channel_layout.addWidget(image_label)
             
             layout.addWidget(channel_widget)
+    
+    def show_window(self):
+        """显示窗口"""
+        self.show()
+
+
+class AlgorithmWindow(QWidget):
+    """算法显示窗口"""
+    
+    def __init__(self, algorithm_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f'{algorithm_name} - 算法原理')
+        self.setStyleSheet(get_style())
+        self.setWindowFlags(Qt.Window)
+        self.resize(800, 600)
+        
+        layout = QVBoxLayout(self)
+        
+        # 标题
+        title_label = QLabel(f'{algorithm_name}算法原理')
+        title_label.setObjectName('subtitle')
+        title_label.setAlignment(Qt.AlignCenter)
+        
+        # 算法内容
+        content_text = QTextEdit()
+        content_text.setReadOnly(True)
+        content_text.setStyleSheet('''
+            QTextEdit {
+                font-family: "Consolas", "Courier New", monospace;
+                font-size: 11pt;
+                line-height: 1.6;
+                padding: 15px;
+            }
+        ''')
+        content_text.setPlainText(self.get_algorithm_content(algorithm_name))
+        
+        layout.addWidget(title_label)
+        layout.addWidget(content_text)
+    
+    def get_algorithm_content(self, name):
+        """获取算法内容"""
+        algorithms = {
+            '摄像头调用': '''
+【核心技术】
+OpenCV VideoCapture + PyQt5 线程
+
+【实现流程】
+1. 初始化摄像头
+   cap = cv2.VideoCapture(0)  # 0表示默认摄像头
+
+2. 创建独立线程读取帧
+   class CameraThread(QThread):
+       def run(self):
+           while self.running:
+               ret, frame = self.cap.read()
+               if ret:
+                   self.frame_ready.emit(frame)
+
+3. 信号槽机制更新UI
+   frame_ready.connect(update_display)
+
+4. 暂停/继续控制
+   使用标志位 paused 控制是否发送帧
+
+5. 关闭摄像头
+   cap.release()
+   thread.quit()
+
+【关键代码】
+ret, frame = cap.read()
+if ret:
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    emit(frame_rgb)
+''',
+            'RGB转Gray': '''
+【算法原理】
+灰度值 = 0.299*R + 0.587*G + 0.114*B
+（基于人眼对不同颜色的敏感度）
+
+【实现步骤】
+1. 提取RGB三通道
+   b, g, r = cv2.split(image)
+
+2. 手动加权计算
+   gray = 0.114*b + 0.587*g + 0.299*r
+
+3. 类型转换
+   gray = gray.astype(np.uint8)
+
+【核心代码】
+def rgb_to_gray_manual(image):
+    if len(image.shape) == 2:
+        return image
+    
+    b, g, r = cv2.split(image)
+    gray = 0.114 * b + 0.587 * g + 0.299 * r
+    return gray.astype(np.uint8)
+''',
+            'RGB转HSV': '''
+【算法原理】
+HSV = (Hue色调, Saturation饱和度, Value明度)
+
+【计算公式】
+1. 归一化RGB到[0,1]
+   r, g, b = R/255, G/255, B/255
+
+2. 计算最大值、最小值、差值
+   cmax = max(r, g, b)
+   cmin = min(r, g, b)
+   delta = cmax - cmin
+
+3. 计算H（色调）
+   if delta == 0:
+       h = 0
+   elif cmax == r:
+       h = 60 * (((g - b) / delta) % 6)
+   elif cmax == g:
+       h = 60 * (((b - r) / delta) + 2)
+   else:
+       h = 60 * (((r - g) / delta) + 4)
+
+4. 计算S（饱和度）
+   s = 0 if cmax == 0 else delta / cmax
+
+5. 计算V（明度）
+   v = cmax
+
+6. 转换到OpenCV范围
+   H: [0, 180], S: [0, 255], V: [0, 255]
+''',
+            '图像读写': '''
+【功能说明】
+像素读取、修改和图形绘制
+
+【像素读取】
+1. 获取像素值
+   pixel = image[y, x]  # 注意：y在前，x在后
+   
+2. BGR到RGB转换
+   b, g, r = pixel
+   RGB = (r, g, b)
+
+【像素修改】
+1. 直接赋值
+   image[y, x] = [b, g, r]
+
+2. 处理4通道图像
+   image[y, x] = [b, g, r, alpha]
+
+【图形绘制】
+1. 绘制矩形
+   cv2.rectangle(img, pt1, pt2, color, thickness)
+
+2. 绘制圆形
+   cv2.circle(img, center, radius, color, thickness)
+
+3. 绘制多边形
+   pts = np.array(points, np.int32)
+   cv2.polylines(img, [pts], isClosed, color, thickness)
+
+【核心代码】
+# 读取
+pixel_value = image[y, x]
+
+# 修改
+image[y, x] = [new_b, new_g, new_r]
+
+# 绘制
+cv2.rectangle(img, (x1,y1), (x2,y2), (0,255,0), 2)
+''',
+            '图像融合': '''
+【算法原理】
+Alpha融合: result = α*img1 + (1-α)*img2
+
+【实现步骤】
+1. 尺寸对齐
+   将小图像缩放到大图像尺寸
+   resize_and_center(img2, img1.shape)
+
+2. 通道数匹配
+   如果通道数不同，转换为3通道BGR
+
+3. 类型转换为float32
+   img1_f = img1.astype(np.float32)
+   img2_f = img2.astype(np.float32)
+
+4. 加权混合
+   result = alpha * img1_f + (1 - alpha) * img2_f
+
+5. 转回uint8
+   result = result.astype(np.uint8)
+
+【核心代码】
+cv2.addWeighted(img1, alpha, img2, 1-alpha, 0)
+''',
+            '颜色阈值抠图': '''
+【算法原理】
+基于颜色范围创建掩码，实现图像融合
+
+【实现步骤】
+1. 颜色空间转换（可选BGR/HSV）
+   if color_space == "HSV":
+       img_space = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+2. 创建二值掩码
+   mask = (img_space >= lower) & (img_space <= upper)
+   mask = np.all(mask, axis=2).astype(np.uint8) * 255
+
+3. 掩码融合
+   mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
+   result = img1 * mask_3ch + img2 * (1 - mask_3ch)
+
+【应用场景】
+- 绿幕抠图（HSV空间选择绿色范围）
+- 特定颜色区域替换
+- 背景替换
+''',
+            '图像校正': '''
+【算法原理】
+透视变换 (Perspective Transform)
+
+【数学原理】
+通过3×3透视变换矩阵M，将值斜四边形映射为矩形
+
+【实现步骤】
+1. 获取四个源点（值斜矩形的四个角）
+   pts_src = [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
+   顺序：左上、右上、右下、左下
+
+2. 计算目标矩形尺寸
+   width = max(上边长度, 下边长度)
+   height = max(左边长度, 右边长度)
+
+3. 定义目标点（标准矩形）
+   pts_dst = [(0,0), (w,0), (w,h), (0,h)]
+
+4. 计算透视变换矩阵
+   M = cv2.getPerspectiveTransform(pts_src, pts_dst)
+
+5. 应用变换
+   warped = cv2.warpPerspective(img, M, (width, height))
+
+【核心代码】
+M = cv2.getPerspectiveTransform(pts_src, pts_dst)
+result = cv2.warpPerspective(image, M, (w, h))
+''',
+            '布匹裁剪分割': '''
+【算法原理】
+基于颜色差异检测分割线
+
+【实现步骤】
+1. 灰度转换
+   gray = rgb_to_gray(image)
+
+2. 计算每列的平均灰度值
+   column_means = np.mean(gray, axis=0)
+
+3. 高斯平滑降噪
+   kernel_size = max(5, width // 100)
+   smoothed = GaussianBlur(column_means)
+
+4. 计算梯度（颜色突变）
+   gradient = np.abs(np.gradient(smoothed))
+
+5. 自适应阈值
+   threshold = mean(gradient) + 1.5 * std(gradient)
+
+6. 找到显著变化点
+   changes = gradient > threshold
+
+7. 定位主分割线
+   - 单个变化点：直接使用
+   - 多个变化点：选择最大间隔的中点
+
+【适用场景】
+- 布匹褥皱检测
+- 色差区域分割
+- 拼接线识别
+'''
+        }
+        
+        return algorithms.get(name, '暂无算法说明')
     
     def show_window(self):
         """显示窗口"""

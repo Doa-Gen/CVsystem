@@ -92,39 +92,50 @@ class ImageProcessor:
         if img1.shape != img2.shape:
             img2 = ImageProcessor.resize_and_center(img2, img1.shape[:2])
         
+        # 确保通道数相同（处理RGB和RGBA的情况）
+        if len(img1.shape) == 3 and len(img2.shape) == 3:
+            if img1.shape[2] != img2.shape[2]:
+                # 如果通道数不同，统一转换为3通道BGR
+                if img1.shape[2] == 4:
+                    img1 = cv2.cvtColor(img1, cv2.COLOR_BGRA2BGR)
+                if img2.shape[2] == 4:
+                    img2 = cv2.cvtColor(img2, cv2.COLOR_BGRA2BGR)
+        
+        # 最终确认尺寸完全一致
+        if img1.shape != img2.shape:
+            raise ValueError(f"图像尺寸不匹配: img1={img1.shape}, img2={img2.shape}")
+        
         return cv2.addWeighted(img1, alpha, img2, 1 - alpha, 0)
     
     @staticmethod
     def resize_and_center(image, target_size):
         """
         调整图像大小并居中
-        将小图像的短边扩展至与大图像一致并居中
+        将图像按比例缩放至目标尺寸内（保持长宽比），并居中放置
         """
         target_h, target_w = target_size[:2]
         src_h, src_w = image.shape[:2]
         
-        # 计算缩放比例
-        scale = max(target_h / src_h, target_w / src_w)
+        # 计算缩放比例，确保图像完整显示在目标区域内（取最小缩放比）
+        scale = min(target_h / src_h, target_w / src_w)
         new_w = int(src_w * scale)
         new_h = int(src_h * scale)
         
         # 缩放图像
         resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
         
-        # 创建目标大小的画布
+        # 创建目标大小的画布（黑色背景）
         if len(image.shape) == 3:
             result = np.zeros((target_h, target_w, image.shape[2]), dtype=image.dtype)
         else:
             result = np.zeros((target_h, target_w), dtype=image.dtype)
         
-        # 居中放置
+        # 计算居中放置的偏移量
         y_offset = (target_h - new_h) // 2
         x_offset = (target_w - new_w) // 2
         
-        y_end = min(y_offset + new_h, target_h)
-        x_end = min(x_offset + new_w, target_w)
-        
-        result[y_offset:y_end, x_offset:x_end] = resized[:y_end-y_offset, :x_end-x_offset]
+        # 将缩放后的图像居中放置
+        result[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized
         
         return result
     
@@ -133,10 +144,19 @@ class ImageProcessor:
         """
         颜色阈值抠图
         """
+        # 处理4通道图像，转换为3通道
+        if len(image.shape) == 3 and image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+        
+        # 转换到指定颜色空间
         if color_space == 'HSV':
             image_space = ImageProcessor.rgb_to_hsv_manual(image)
         else:
             image_space = image
+        
+        # 再次确认通道数，确保与阈值匹配
+        if len(image_space.shape) == 3 and image_space.shape[2] == 4:
+            image_space = cv2.cvtColor(image_space, cv2.COLOR_BGRA2BGR)
         
         mask = np.all((image_space >= lower_bound) & (image_space <= upper_bound), axis=2)
         return mask.astype(np.uint8) * 255
@@ -285,71 +305,111 @@ class ImageProcessor:
     @staticmethod
     def correct_perspective(image, pts_src):
         """
-        图像校正 - 旋转并裁剪矩形
-        将倾斜矩形旋转到水平位置，并裁剪出矩形区域
-        pts_src: 源图像中的四个点坐标 [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
+        图像校正 - 使用透视变换将倾斜矩形摆正
+        pts_src: 源图像中的4个点坐标 [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
                  顺序：左上、右上、右下、左下
         """
-        # 计算矩形的倾斜角度（使用上边的两个点）
-        pt1, pt2 = pts_src[0], pts_src[1]  # 左上、右上
+        # 转换为numpy数组
+        pts_src = np.array(pts_src, dtype=np.float32)
         
-        # 计算角度（弧度转角度）
-        dx = pt2[0] - pt1[0]
-        dy = pt2[1] - pt1[1]
-        angle = np.degrees(np.arctan2(dy, dx))
+        # 计算目标矩形的宽高
+        # 计算上边和下边的宽度
+        width_top = np.sqrt(((pts_src[1][0] - pts_src[0][0]) ** 2) + ((pts_src[1][1] - pts_src[0][1]) ** 2))
+        width_bottom = np.sqrt(((pts_src[2][0] - pts_src[3][0]) ** 2) + ((pts_src[2][1] - pts_src[3][1]) ** 2))
+        max_width = int(max(width_top, width_bottom))
         
-        # 计算旋转中心（矩形中心）
-        pts = np.array(pts_src, dtype=np.float32)
-        center_x = float(np.mean(pts[:, 0]))
-        center_y = float(np.mean(pts[:, 1]))
-        center = (center_x, center_y)
+        # 计算左边和右边的高度
+        height_left = np.sqrt(((pts_src[3][0] - pts_src[0][0]) ** 2) + ((pts_src[3][1] - pts_src[0][1]) ** 2))
+        height_right = np.sqrt(((pts_src[2][0] - pts_src[1][0]) ** 2) + ((pts_src[2][1] - pts_src[1][1]) ** 2))
+        max_height = int(max(height_left, height_right))
         
-        # 获取旋转矩阵
-        height, width = image.shape[:2]
-        rotation_matrix = cv2.getRotationMatrix2D(center, -angle, 1.0)
+        # 定义目标点（摆正后的矩形）
+        pts_dst = np.array([
+            [0, 0],                      # 左上
+            [max_width - 1, 0],          # 右上
+            [max_width - 1, max_height - 1],  # 右下
+            [0, max_height - 1]          # 左下
+        ], dtype=np.float32)
         
-        # 计算旋转后的图像边界
-        cos = np.abs(rotation_matrix[0, 0])
-        sin = np.abs(rotation_matrix[0, 1])
-        new_width = int((height * sin) + (width * cos))
-        new_height = int((height * cos) + (width * sin))
+        # 计算透视变换矩阵
+        M = cv2.getPerspectiveTransform(pts_src, pts_dst)
         
-        # 调整旋转矩阵的平移部分
-        rotation_matrix[0, 2] += (new_width / 2) - center_x
-        rotation_matrix[1, 2] += (new_height / 2) - center_y
+        # 应用透视变换
+        warped = cv2.warpPerspective(image, M, (max_width, max_height),
+                                      flags=cv2.INTER_LINEAR,
+                                      borderMode=cv2.BORDER_CONSTANT,
+                                      borderValue=(255, 255, 255))
         
-        # 应用旋转变换
-        rotated = cv2.warpAffine(image, rotation_matrix, (new_width, new_height),
-                                 flags=cv2.INTER_LINEAR,
-                                 borderMode=cv2.BORDER_CONSTANT,
-                                 borderValue=(255, 255, 255))
-        
-        # 计算旋转后的矩形四个角点位置
-        ones = np.ones(shape=(len(pts), 1))
-        points_ones = np.hstack([pts, ones])
-        transformed_points = rotation_matrix.dot(points_ones.T).T
-        
-        # 找到旋转后矩形的边界
-        x_coords = transformed_points[:, 0]
-        y_coords = transformed_points[:, 1]
-        
-        x_min = int(np.min(x_coords))
-        x_max = int(np.max(x_coords))
-        y_min = int(np.min(y_coords))
-        y_max = int(np.max(y_coords))
-        
-        # 确保裁剪区域在图像范围内
-        x_min = max(0, x_min)
-        y_min = max(0, y_min)
-        x_max = min(new_width, x_max)
-        y_max = min(new_height, y_max)
-        
-        # 裁剪出矩形区域
-        if x_max > x_min and y_max > y_min:
-            cropped = rotated[y_min:y_max, x_min:x_max]
-            return cropped
+        return warped
+    
+    @staticmethod
+    def detect_fabric_cut_line(image):
+        """
+        识别布匹上的最佳裁剪分割线
+        基于颜色差异检测待分割区域（褥皱部分颜色与正常布匹不同）
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
         else:
-            return rotated
+            gray = image.copy()
+        
+        height, width = gray.shape
+        
+        # 计算每列的平均灰度值（用于检测颜色差异）
+        column_means = np.mean(gray, axis=0)
+        
+        # 对平均值进行平滑处理，减少噪声影响
+        kernel_size = max(5, width // 100)
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        column_means_smooth = cv2.GaussianBlur(column_means.reshape(1, -1), (kernel_size, 1), 0).flatten()
+        
+        # 计算灰度值的梯度（检测颜色突变）
+        gradient = np.abs(np.gradient(column_means_smooth))
+        
+        # 找到梯度最大的位置（颜色变化最大的地方）
+        # 使用自适应阈值
+        gradient_threshold = np.mean(gradient) + np.std(gradient) * 1.5
+        significant_changes = gradient > gradient_threshold
+        
+        # 找到所有显著变化的位置
+        change_positions = np.where(significant_changes)[0]
+        
+        result = image.copy()
+        if len(result.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        
+        if len(change_positions) == 0:
+            # 如果没有发现显著变化，使用梯度最大值
+            best_x = int(np.argmax(gradient))
+            cv2.line(result, (best_x, 0), (best_x, height - 1), (0, 0, 255), 3)
+        else:
+            # 对变化位置进行聚类，找到主要的分割区域
+            # 如果有多个变化点，选择中间区域
+            if len(change_positions) > 1:
+                # 计算变化点之间的间隔
+                intervals = np.diff(change_positions)
+                # 找到最大间隔的中点（可能是褥皱区域）
+                if len(intervals) > 0:
+                    max_interval_idx = np.argmax(intervals)
+                    start_pos = change_positions[max_interval_idx]
+                    end_pos = change_positions[max_interval_idx + 1]
+                    best_x = int((start_pos + end_pos) / 2)
+                else:
+                    best_x = int(change_positions[0])
+            else:
+                best_x = int(change_positions[0])
+            
+            # 绘制主分割线（红色粗线）
+            cv2.line(result, (best_x, 0), (best_x, height - 1), (0, 0, 255), 3)
+            
+            # 可选：绘制所有检测到的变化点（黄色细线）
+            for x in change_positions:
+                if abs(x - best_x) > 10:  # 避免与主线重叠
+                    cv2.line(result, (int(x), 0), (int(x), height - 1), (0, 255, 255), 1)
+        
+        return result
     
     # ==================== 实验三：高级图像处理 ====================
     
