@@ -18,7 +18,7 @@ class MainWindow(QMainWindow):
         
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle('图像处理学习平台')
+        self.setWindowTitle('机器视觉图像处理实验平台')
         self.setGeometry(100, 100, 1400, 900)
         self.setStyleSheet(get_style())
         
@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
         content_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 欢迎信息
-        welcome_label = QLabel('欢迎使用图像处理学习平台')
+        welcome_label = QLabel('欢迎使用机器视觉图像处理实验平台')
         welcome_label.setObjectName('title')
         welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         welcome_label.setStyleSheet(f"""
