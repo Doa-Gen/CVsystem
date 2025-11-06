@@ -5,7 +5,7 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QFileDialog, QMessageBox,
                              QSpinBox, QGroupBox, QGridLayout, QScrollArea,
-                             QListWidget, QListWidgetItem)
+                             QListWidget, QListWidgetItem, QTextEdit)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 import cv2
@@ -192,10 +192,15 @@ class Experiment2Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('分段线性变换'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(points_group)
         self.controls_layout.addWidget(apply_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def add_transform_point(self):
         """添加变换点"""
@@ -259,10 +264,15 @@ class Experiment2Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('直方图均衡化'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(calc_btn)
         self.controls_layout.addWidget(equalize_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def calculate_histogram(self):
         """计算并显示直方图"""
@@ -347,9 +357,14 @@ class Experiment2Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('中值滤波'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(kernel_group)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def apply_median_filter(self, kernel_size):
         """应用中值滤波"""
@@ -416,10 +431,15 @@ class Experiment2Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('低通滤波'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(noise_group)
         self.controls_layout.addWidget(filter_group)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def add_gaussian_noise(self):
         """添加高斯噪声"""
@@ -486,10 +506,15 @@ class Experiment2Panel(QWidget):
         save_btn = QPushButton('导出结果')
         save_btn.clicked.connect(self.save_processed_image)
         
+        algorithm_btn = QPushButton('📚 查看算法')
+        algorithm_btn.setStyleSheet('background-color: #0969da; color: white;')
+        algorithm_btn.clicked.connect(lambda: self.show_algorithm('圆形检测'))
+        
         self.controls_layout.addWidget(load_btn)
         self.controls_layout.addWidget(params_group)
         self.controls_layout.addWidget(find_btn)
         self.controls_layout.addWidget(save_btn)
+        self.controls_layout.addWidget(algorithm_btn)
     
     def find_circles(self):
         """寻找圆形区域"""
@@ -571,6 +596,11 @@ class Experiment2Panel(QWidget):
                 QMessageBox.information(self, '成功', f'图片已保存到: {file_path}')
             else:
                 QMessageBox.warning(self, '错误', '图片保存失败')
+    
+    def show_algorithm(self, algorithm_name):
+        """显示算法窗口"""
+        dialog = AlgorithmWindow(algorithm_name, self)
+        dialog.show_window()
 
 
 class HistogramWindow(QWidget):
@@ -601,6 +631,253 @@ class HistogramWindow(QWidget):
             fig.tight_layout()
             
             layout.addWidget(canvas)
+    
+    def show_window(self):
+        """显示窗口"""
+        self.show()
+
+
+class AlgorithmWindow(QWidget):
+    """算法显示窗口"""
+    
+    def __init__(self, algorithm_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f'{algorithm_name} - 算法原理')
+        self.setStyleSheet(get_style())
+        self.setWindowFlags(Qt.Window)
+        self.resize(800, 600)
+        
+        layout = QVBoxLayout(self)
+        
+        # 标题
+        title_label = QLabel(f'{algorithm_name}算法原理')
+        title_label.setObjectName('subtitle')
+        title_label.setAlignment(Qt.AlignCenter)
+        
+        # 算法内容
+        content_text = QTextEdit()
+        content_text.setReadOnly(True)
+        content_text.setStyleSheet('''
+            QTextEdit {
+                font-family: "Consolas", "Courier New", monospace;
+                font-size: 11pt;
+                line-height: 1.6;
+                padding: 15px;
+            }
+        ''')
+        content_text.setPlainText(self.get_algorithm_content(algorithm_name))
+        
+        layout.addWidget(title_label)
+        layout.addWidget(content_text)
+    
+    def get_algorithm_content(self, name):
+        """获取算法内容"""
+        algorithms = {
+            '分段线性变换': '''
+【算法原理】
+分段线性灰度变换：通过多个控制点定义分段线性映射
+
+【数学公式】
+对于控制点 (x1,y1) 和 (x2,y2) 之间，输入灰度 x 的输出为：
+
+y = y1 + (x - x1) * (y2 - y1) / (x2 - x1)
+
+【实现步骤】
+1. 添加控制点
+   用户指定 (x, y) 对，表示输入灰度 x 映射到输出灰度 y
+
+2. 排序控制点
+   按 x 值升序排列
+
+3. 建立映射表
+   对每个输入灰度值 0-255，找到其所在的分段，计算输出值
+
+4. 应用变换
+   遍历图像每个像素，查表映射
+
+【核心代码】
+# 构建映射表
+for i in range(256):
+    for j in range(len(points)-1):
+        x1, y1 = points[j]
+        x2, y2 = points[j+1]
+        if x1 <= i <= x2:
+            output = y1 + (i - x1) * (y2 - y1) / (x2 - x1)
+            lut[i] = np.clip(output, 0, 255)
+
+# 应用变换
+result = lut[image]
+
+【应用场景】
+- 对比度增强：S型曲线
+- 灰度反转：负片效果
+- 亮度调整：提亮/压暗
+''',
+            '直方图均衡化': '''
+【算法原理】
+直方图均衡化：使图像直方图分布尽可能均匀
+
+【数学原理】
+1. 计算直方图 H(i)
+   H(i) = 灰度值 i 的像素数量
+
+2. 计算累积分布函数 CDF(i)
+   CDF(i) = ∑(H(j)), j=0 to i
+
+3. 归一化并映射
+   output(i) = (CDF(i) - CDF_min) / (total_pixels - CDF_min) * 255
+
+【实现步骤】
+1. 计算直方图
+   hist = np.zeros(256)
+   for pixel in image:
+       hist[pixel] += 1
+
+2. 计算CDF
+   cdf = np.cumsum(hist)
+
+3. 归一化CDF
+   cdf_min = cdf[cdf > 0].min()
+   lut = ((cdf - cdf_min) / (total - cdf_min) * 255).astype(np.uint8)
+
+4. 应用映射
+   result = lut[image]
+
+【效果】
+- 增强图像对比度
+- 改善图像视觉效果
+- 使灰度分布更加均匀
+
+【核心代码】
+cdf = np.cumsum(hist)
+cdf_normalized = (cdf - cdf.min()) / (cdf.max() - cdf.min()) * 255
+equalized = cdf_normalized[image]
+''',
+            '中值滤波': '''
+【算法原理】
+中值滤波：用邻域像素的中值替换中心像素
+
+【核心思想】
+对每个像素，取其邻域窗口内所有像素的中值作为输出
+
+【实现步骤】
+1. 选择窗口大小（如 3×3、5×5、7×7）
+
+2. 对每个像素：
+   a. 提取邻域窗口
+   b. 对窗口内像素排序
+   c. 取中间值
+
+3. 边界处理：填充或镜像
+
+【核心代码】
+def median_filter(image, kernel_size):
+    pad = kernel_size // 2
+    result = np.zeros_like(image)
+    
+    for i in range(pad, height - pad):
+        for j in range(pad, width - pad):
+            window = image[i-pad:i+pad+1, j-pad:j+pad+1]
+            result[i, j] = np.median(window)
+    
+    return result
+
+【优点】
+- 去除椒盐噪声效果好
+- 保持边缘清晰
+- 非线性滤波，不模糊
+
+【缺点】
+- 计算量大，速度慢
+- 大核在大图像上耗时较长
+''',
+            '低通滤波': '''
+【算法原理】
+低通滤波：去除高频噪声，保留低频信息
+
+【噪声类型】
+
+1. 高斯噪声
+   n(x,y) ~ N(μ, σ²)
+   noisy = image + gaussian_noise
+
+2. 椒盐噪声
+   随机将像素设为 0（椒）或 255（盐）
+   if rand() < prob:
+       pixel = 0 or 255
+
+【滤波方法】
+
+1. 中值滤波（非线性）
+   - 适合椒盐噪声
+   - 保持边缘
+
+2. 高斯滤波（线性）
+   - 适合高斯噪声
+   - 会模糊边缘
+
+3. 均值滤波
+   output = mean(window)
+
+【实现步骤】
+1. 添加噪声（模拟）
+2. 选择适合的滤波器
+3. 应用滤波
+4. 对比原图、噪声图、滤波后图像
+
+【核心代码】
+# 高斯噪声
+noise = np.random.normal(mean, sigma, image.shape)
+noisy = np.clip(image + noise, 0, 255).astype(np.uint8)
+
+# 椒盐噪声
+mask = np.random.rand(*image.shape) < prob
+noisy[mask] = np.random.choice([0, 255])
+''',
+            '圆形检测': '''
+【算法原理】
+Hough圆变换：检测图像中的圆形区域
+
+【数学原理】
+圆的方程：(x - a)² + (y - b)² = r²
+其中 (a,b) 是圆心，r 是半径
+
+【实现步骤】
+1. 灰度化与预处理
+   gray = rgb_to_gray(image)
+   blurred = GaussianBlur(gray)
+
+2. 边缘检测
+   edges = Canny(blurred, threshold1, threshold2)
+
+3. Hough圆变换
+   circles = cv2.HoughCircles(
+       gray, cv2.HOUGH_GRADIENT,
+       dp=1, minDist=50,
+       param1=100, param2=30,
+       minRadius=min_r, maxRadius=max_r
+   )
+
+4. 结果标注
+   - 红色圆点：圆心
+   - 绿色圆圈：圆形边缘
+   - 蓝色直线：半径指示
+
+【参数调节】
+- minRadius: 最小半径，过滤小圆
+- maxRadius: 最大半径，过滤大圆
+- minDist: 圆心最小距离，避免重复检测
+- param1: Canny高阈值
+- param2: 累加器阈值，越小检测越多
+
+【应用场景】
+- 硬币检测计数
+- 圆形物体识别
+- 工业检测
+'''
+        }
+        
+        return algorithms.get(name, '暂无算法说明')
     
     def show_window(self):
         """显示窗口"""
