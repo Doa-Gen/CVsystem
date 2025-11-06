@@ -377,8 +377,12 @@ class ImageProcessor:
         change_positions = np.where(significant_changes)[0]
         
         result = image.copy()
+        # 确保结果图像是3通道BGR格式
         if len(result.shape) == 2:
             result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
         
         if len(change_positions) == 0:
             # 如果没有发现显著变化，使用梯度最大值
@@ -432,6 +436,13 @@ class ImageProcessor:
         
         # 在原图上绘制直线
         result = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
+        
         if lines is not None:
             for rho, theta in lines[:, 0]:
                 a = np.cos(theta)
@@ -476,6 +487,13 @@ class ImageProcessor:
         
         # 在原图上绘制圆形
         result = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result.shape) == 2:
+            result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
+        
         if circles is not None:
             circles = np.round(circles[0, :]).astype(int)
             for x, y, r in circles:
@@ -559,8 +577,12 @@ class ImageProcessor:
         
         # 绘制结果
         result = image.copy()
-        if len(image.shape) == 2:
+        # 确保结果图像是3通道BGR格式
+        if len(result.shape) == 2:
             result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
         
         # 绘制主圆轮廓（绿色）
         cv2.drawContours(result, [main_contour], -1, (0, 255, 0), 2)
@@ -584,8 +606,13 @@ class ImageProcessor:
         能够检测明显色彩差别的曲线划痕
         """
         result = image.copy()
+        
+        # 确保结果图像是3通道BGR格式
         if len(result.shape) == 2:
             result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
         
         # 转为灰度图
         if len(image.shape) == 3:
@@ -706,8 +733,12 @@ class ImageProcessor:
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         result = image.copy()
+        # 确保结果图像是3通道BGR格式
         if len(result.shape) == 2:
             result = cv2.cvtColor(result, cv2.COLOR_GRAY2BGR)
+        elif result.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result = cv2.cvtColor(result, cv2.COLOR_BGRA2BGR)
         
         defect_info = {}
         

@@ -19,7 +19,7 @@ class ImageDisplayLabel(QLabel):
     """图像显示标签"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setScaledContents(False)
 
 
@@ -135,8 +135,10 @@ class Experiment3Panel(QWidget):
         """清空控制面板"""
         while self.controls_layout.count():
             item = self.controls_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
     
     def update_display(self):
         """更新图像显示"""

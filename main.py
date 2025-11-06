@@ -9,7 +9,7 @@ from ui.main_window import MainWindow
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')  # 使用Fusion风格作为基础
+    app.setStyle('Fusion')  
     
     window = MainWindow()
     window.show()

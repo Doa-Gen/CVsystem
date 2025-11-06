@@ -2,12 +2,13 @@
 实验一面板：基础图像处理
 包含：摄像头调用、图像格式转换、图像读写测试、图片融合、图像校正
 """
+from typing import Optional
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLabel, QScrollArea, QFileDialog,
                              QMessageBox, QLineEdit, QComboBox, QGroupBox,
                              QGridLayout, QSpinBox, QTextEdit)
 from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QPainter, QPen, QColor, QPixmap, QImage
+from PyQt5.QtGui import QPainter, QPen, QColor, QPixmap, QImage, QMouseEvent
 import cv2
 import numpy as np
 from .styles import get_style, COLORS
@@ -146,8 +147,6 @@ class Experiment1Panel(QWidget):
         """清空控制面板"""
         while self.controls_layout.count():
             item = self.controls_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
     
     # ==================== 任务1：摄像头调用 ====================
     
@@ -450,7 +449,10 @@ class Experiment1Panel(QWidget):
     def draw_rectangle(self):
         """绘制矩形"""
         if self.processed_image is None:
-            self.processed_image = self.original_image.copy()
+            if self.original_image is not None:
+                self.processed_image = self.original_image.copy()
+            else:
+                return
         
         pt1, pt2 = self.drawing_points
         cv2.rectangle(self.processed_image, pt1, pt2, (0, 255, 0), 2)
@@ -462,7 +464,10 @@ class Experiment1Panel(QWidget):
     def draw_circle(self):
         """绘制圆形"""
         if self.processed_image is None:
-            self.processed_image = self.original_image.copy()
+            if self.original_image is not None:
+                self.processed_image = self.original_image.copy()
+            else:
+                return
         
         center, edge = self.drawing_points
         radius = int(np.sqrt((center[0] - edge[0])**2 + (center[1] - edge[1])**2))
@@ -475,7 +480,10 @@ class Experiment1Panel(QWidget):
     def draw_triangle(self):
         """绘制三角形"""
         if self.processed_image is None:
-            self.processed_image = self.original_image.copy()
+            if self.original_image is not None:
+                self.processed_image = self.original_image.copy()
+            else:
+                return
         
         pts = np.array(self.drawing_points, np.int32)
         pts = pts.reshape((-1, 1, 2))
@@ -493,6 +501,8 @@ class Experiment1Panel(QWidget):
     
     def redraw_all_shapes(self):
         """重新绘制所有图形"""
+        if self.original_image is None:
+            return
         self.processed_image = self.original_image.copy()
         for shape_type, points in self.shapes_drawn:
             if shape_type == 'rectangle':
@@ -888,29 +898,29 @@ class ImageDisplayLabel(QLabel):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMouseTracking(True)
-        self.original_image = None
+        self.original_image: Optional[np.ndarray] = None
     
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, ev: Optional[QMouseEvent]) -> None:
         """鼠标移动事件"""
-        if self.pixmap() and self.original_image is not None:
-            pixel_pos = self.map_to_image(event.pos())
-            self.mouse_moved.emit(event.pos(), pixel_pos)
+        if ev and self.pixmap() and self.original_image is not None:
+            pixel_pos = self.map_to_image(ev.pos())
+            self.mouse_moved.emit(ev.pos(), pixel_pos)
     
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, ev: Optional[QMouseEvent]) -> None:
         """鼠标按下事件"""
-        if self.pixmap() and self.original_image is not None:
-            pixel_pos = self.map_to_image(event.pos())
-            self.mouse_clicked.emit(event.pos(), pixel_pos)
+        if ev and self.pixmap() and self.original_image is not None:
+            pixel_pos = self.map_to_image(ev.pos())
+            self.mouse_clicked.emit(ev.pos(), pixel_pos)
     
     def map_to_image(self, pos):
         """将显示坐标映射到图像坐标"""
-        if not self.pixmap() or self.original_image is None:
+        pixmap = self.pixmap()
+        if not pixmap or self.original_image is None:
             return QPoint(0, 0)
         
         # 获取显示的pixmap大小和位置
-        pixmap = self.pixmap()
         label_rect = self.rect()
         
         # 计算pixmap在label中的位置（居中）
@@ -939,7 +949,7 @@ class ChannelsWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle('通道显示')
         self.setStyleSheet(get_style())
-        self.setWindowFlags(Qt.Window)  # 设置为窗口
+        self.setWindowFlags(Qt.WindowType.Window)  # 设置为窗口
         
         layout = QHBoxLayout(self)
         
@@ -948,12 +958,12 @@ class ChannelsWindow(QWidget):
             channel_layout = QVBoxLayout(channel_widget)
             
             label = QLabel(title)
-            label.setAlignment(Qt.AlignCenter)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setObjectName('subtitle')
             
             image_label = QLabel()
             image_label.setFixedSize(300, 300)
-            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             image_label.setStyleSheet(f"""
                 border: 1px solid {COLORS['border']};
                 border-radius: 6px;
@@ -986,7 +996,7 @@ class AlgorithmWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle(f'{algorithm_name} - 算法原理')
         self.setStyleSheet(get_style())
-        self.setWindowFlags(Qt.Window)
+        self.setWindowFlags(Qt.WindowType.Window)
         self.resize(800, 600)
         
         layout = QVBoxLayout(self)
@@ -994,7 +1004,7 @@ class AlgorithmWindow(QWidget):
         # 标题
         title_label = QLabel(f'{algorithm_name}算法原理')
         title_label.setObjectName('subtitle')
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 算法内容
         content_text = QTextEdit()

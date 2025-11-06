@@ -6,13 +6,13 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QFileDialog, QMessageBox,
                              QSpinBox, QGroupBox, QGridLayout, QScrollArea,
                              QListWidget, QListWidgetItem, QTextEdit)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, Qt as QtCore
 from PyQt5.QtGui import QPixmap
 import cv2
 import numpy as np
 import matplotlib
 matplotlib.use('Qt5Agg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from .styles import get_style, COLORS
 from core.image_processor import ImageProcessor
@@ -87,7 +87,7 @@ class Experiment2Panel(QWidget):
         original_label.setObjectName('subtitle')
         self.original_display = QLabel()
         self.original_display.setFixedSize(1000, 380)
-        self.original_display.setAlignment(Qt.AlignCenter)
+        self.original_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.original_display.setStyleSheet(f"""
             border: 1px solid {COLORS['border']};
             border-radius: 6px;
@@ -99,7 +99,7 @@ class Experiment2Panel(QWidget):
         processed_label.setObjectName('subtitle')
         self.processed_display = QLabel()
         self.processed_display.setFixedSize(1000, 380)
-        self.processed_display.setAlignment(Qt.AlignCenter)
+        self.processed_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.processed_display.setStyleSheet(f"""
             border: 1px solid {COLORS['border']};
             border-radius: 6px;
@@ -136,8 +136,10 @@ class Experiment2Panel(QWidget):
         """清空控制面板"""
         while self.controls_layout.count():
             item = self.controls_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            if item:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
     
     # ==================== 任务1：直接灰度变换 ====================
     
@@ -611,7 +613,7 @@ class HistogramWindow(QWidget):
         self.setWindowTitle('直方图')
         self.setStyleSheet(get_style())
         self.resize(1000, 400)
-        self.setWindowFlags(Qt.Window)
+        self.setWindowFlags(Qt.WindowType.Window)
         
         layout = QHBoxLayout(self)
         
@@ -644,7 +646,7 @@ class AlgorithmWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle(f'{algorithm_name} - 算法原理')
         self.setStyleSheet(get_style())
-        self.setWindowFlags(Qt.Window)
+        self.setWindowFlags(Qt.WindowType.Window)
         self.resize(800, 600)
         
         layout = QVBoxLayout(self)
@@ -652,7 +654,7 @@ class AlgorithmWindow(QWidget):
         # 标题
         title_label = QLabel(f'{algorithm_name}算法原理')
         title_label.setObjectName('subtitle')
-        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 算法内容
         content_text = QTextEdit()

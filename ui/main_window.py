@@ -64,12 +64,12 @@ class MainWindow(QMainWindow):
         content = QWidget()
         content.setStyleSheet(f"background-color: {COLORS['secondary_bg']};")
         content_layout = QVBoxLayout(content)
-        content_layout.setAlignment(Qt.AlignCenter)
+        content_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # 欢迎信息
         welcome_label = QLabel('欢迎使用图像处理学习平台')
         welcome_label.setObjectName('title')
-        welcome_label.setAlignment(Qt.AlignCenter)
+        welcome_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         welcome_label.setStyleSheet(f"""
             font-size: 32px;
             font-weight: 600;
@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
         
         subtitle_label = QLabel('请从顶部菜单选择实验和任务开始')
         subtitle_label.setObjectName('subtitle')
-        subtitle_label.setAlignment(Qt.AlignCenter)
+        subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle_label.setStyleSheet(f"""
             font-size: 16px;
             color: {COLORS['text_secondary']};
@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         """导出图片"""
         # 获取当前激活的面板
         current_widget = self.content_stack.currentWidget()
-        if hasattr(current_widget, 'save_processed_image'):
+        if current_widget is not None and hasattr(current_widget, 'save_processed_image'):
             current_widget.save_processed_image()
         else:
             from PyQt5.QtWidgets import QMessageBox
