@@ -12,8 +12,17 @@ import cv2
 import numpy as np
 import matplotlib
 matplotlib.use('Qt5Agg')
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
+
+# 配置matplotlib中文显示
+try:
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun', 'KaiTi', 'Arial Unicode MS']
+    plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+except:
+    pass
+
 from .styles import get_style, COLORS
 from core.image_processor import ImageProcessor
 from utils.helpers import get_display_pixmap, imread_chinese, imwrite_chinese

@@ -559,7 +559,7 @@ class ImageProcessor:
         
         # 创建主圆的掩膜
         mask = np.zeros_like(gray)
-        cv2.drawContours(mask, [main_contour], -1, 255, -1)
+        cv2.drawContours(mask, [main_contour], -1, (255,), -1)
         
         # 检测缺陷（主圆内部的黑色区域）
         defects = cv2.bitwise_not(binary) & mask
@@ -707,10 +707,15 @@ class ImageProcessor:
             
             # 划痕通常是狭长的
             if area > 20 or aspect_ratio > 3:
-                cv2.drawContours(mask, [cnt], -1, 255, -1)
+                cv2.drawContours(mask, [cnt], -1, (255,), -1)
         
         # 将划痕区域高亮显示（红色）
-        result[mask > 0] = [0, 0, 255]
+        # 直接遍历mask中标记的像素
+        height, width = mask.shape
+        for i in range(height):
+            for j in range(width):
+                if mask[i, j] > 0:
+                    result[i, j] = [0, 0, 255]
         
         # 额外绘制轮廓使划痕更明显
         cv2.drawContours(result, contours, -1, (255, 0, 0), 1)
@@ -794,3 +799,636 @@ class ImageProcessor:
             defect_info['断路数量'] = gap_count
         
         return result, defect_info
+    
+    @staticmethod
+    def harris_corner_detection(image, k=0.04):
+        """
+        Harris角点检测
+        参数:
+            image: 输入图像
+            k: Harris检测器参数
+        返回:
+            result_image: 标记角点的图像
+            corners: 检测到的角点坐标列表
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 确保输入为uint8类型
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
+        
+        # 转换为OpenCV所需的格式
+        gray_cv = np.ascontiguousarray(gray)
+        
+        # 创建单位矩阵作为结构元素
+        kernel = np.ones((3, 3), np.uint8)
+        
+        # Harris角点检测
+        dst = cv2.cornerHarris(gray_cv, 2, 3, k)
+        
+        # 增强角点可见性
+        dst = cv2.dilate(dst, kernel)
+        
+        # 标记角点
+        result_image = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result_image.shape) == 2:
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+        elif result_image.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+        
+        # 获取角点坐标（响应值 > 0.01 * 最大值）
+        threshold = 0.01 * dst.max()
+        corners = np.where(dst > threshold)
+        
+        # 在图像上标记角点（红色）
+        result_image[corners[0], corners[1]] = [0, 0, 255]
+        
+        # 转换角点坐标为列表格式 [(x, y), ...]
+        corner_points = [(int(corners[1][i]), int(corners[0][i])) for i in range(len(corners[0]))]
+        
+        return result_image, corner_points
+    
+    @staticmethod
+    def shi_tomasi_detection(image, max_corners=100, quality_level=0.01, min_distance=10):
+        """
+        Shi-Tomasi角点检测
+        参数:
+            image: 输入图像
+            max_corners: 最大角点数
+            quality_level: 质量等级
+            min_distance: 最小距离
+        返回:
+            result_image: 标记角点的图像
+            corners: 检测到的角点坐标列表
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 确保输入为uint8类型
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
+        
+        # Shi-Tomasi角点检测
+        corners = cv2.goodFeaturesToTrack(gray, max_corners, quality_level, min_distance)
+        
+        # 标记角点
+        result_image = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result_image.shape) == 2:
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+        elif result_image.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+        
+        # 在图像上标记角点（蓝色）
+        if corners is not None:
+            for i in range(len(corners)):
+                x, y = int(corners[i][0][0]), int(corners[i][0][1])
+                cv2.circle(result_image, (x, y), 3, (255, 0, 0), -1)
+        
+        # 转换角点坐标为列表格式 [(x, y), ...]
+        corner_points = []
+        if corners is not None:
+            for i in range(len(corners)):
+                corner_points.append((int(corners[i][0][0]), int(corners[i][0][1])))
+        
+        return result_image, corner_points
+    
+    @staticmethod
+    def shi_tomasi_subpix_refinement(image, corners):
+        """
+        Shi-Tomasi角点亚像素优化
+        参数:
+            image: 输入图像
+            corners: 角点坐标列表
+        返回:
+            result_image: 标记优化角点的图像
+            refined_corners: 优化后的角点坐标列表
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 确保输入为uint8类型
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
+        
+        # 准备角点数据
+        if len(corners) == 0:
+            return image.copy(), []
+        
+        # 转换角点格式
+        corners_array = np.array(corners, dtype=np.float32).reshape(-1, 1, 2)
+        
+        # 设置优化参数
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        
+        # 亚像素优化
+        refined_corners = cv2.cornerSubPix(gray, corners_array, (11, 11), (-1, -1), criteria)
+        
+        # 标记优化后的角点
+        result_image = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result_image.shape) == 2:
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+        elif result_image.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+        
+        # 在图像上标记优化后的角点（绿色）
+        if refined_corners is not None:
+            for i in range(len(refined_corners)):
+                x, y = int(refined_corners[i][0][0]), int(refined_corners[i][0][1])
+                cv2.circle(result_image, (x, y), 3, (0, 255, 0), -1)
+        
+        # 转换角点坐标为列表格式 [(x, y), ...]
+        refined_points = []
+        if refined_corners is not None:
+            for i in range(len(refined_corners)):
+                refined_points.append((int(refined_corners[i][0][0]), int(refined_corners[i][0][1])))
+        
+        return result_image, refined_points
+    
+    @staticmethod
+    def sift_detection(image):
+        """
+        SIFT特征点检测
+        参数:
+            image: 输入图像
+        返回:
+            result_image: 标记特征点的图像
+            keypoints_info: 特征点信息列表
+        """
+        # 转为灰度图
+        if len(image.shape) == 3:
+            gray = ImageProcessor.rgb_to_gray_manual(image)
+        else:
+            gray = image.copy()
+        
+        # 确保输入为uint8类型
+        if gray.dtype != np.uint8:
+            gray = np.clip(gray, 0, 255).astype(np.uint8)
+        
+        # 检查是否支持SIFT
+        sift_available = False
+        sift = None
+        
+        # 尝试不同的SIFT创建方法
+        try:
+            sift = cv2.SIFT_create()
+            sift_available = True
+        except AttributeError:
+            try:
+                sift = cv2.xfeatures2d.SIFT_create()
+                sift_available = True
+            except AttributeError:
+                pass
+        
+        # 如果SIFT不可用，返回错误信息
+        if not sift_available or sift is None:
+            result_image = image.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'SIFT not available', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, []
+        
+        # 检测特征点和计算描述符
+        keypoints, descriptors = sift.detectAndCompute(gray, None)
+        
+        # 在图像上绘制特征点
+        result_image = image.copy()
+        # 确保结果图像是3通道BGR格式
+        if len(result_image.shape) == 2:
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+        elif result_image.shape[2] == 4:
+            # 如果是4通道（BGRA），转换为3通道BGR
+            result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+        
+        # 绘制特征点（显示尺度和方向）
+        result_image = cv2.drawKeypoints(result_image, keypoints, result_image, 
+                                        flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        
+        # 收集特征点信息
+        keypoints_info = []
+        for kp in keypoints:
+            keypoints_info.append({
+                'x': kp.pt[0],
+                'y': kp.pt[1],
+                'size': kp.size,
+                'angle': kp.angle
+            })
+        
+        return result_image, keypoints_info
+    
+    @staticmethod
+    def feature_matching(image1, image2, nn_ratio=0.8):
+        """
+        特征点匹配
+        参数:
+            image1: 第一张图像
+            image2: 第二张图像
+            nn_ratio: 最近邻比率阈值
+        返回:
+            result_image: 匹配结果图像
+            match_count: 有效匹配对数量
+        """
+        # 检查是否支持SIFT
+        sift_available = False
+        sift = None
+        
+        # 尝试不同的SIFT创建方法
+        try:
+            sift = cv2.SIFT_create()
+            sift_available = True
+        except AttributeError:
+            try:
+                sift = cv2.xfeatures2d.SIFT_create()
+                sift_available = True
+            except AttributeError:
+                pass
+        
+        # 如果SIFT不可用，返回错误信息
+        if not sift_available or sift is None:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'SIFT not available', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, 0
+        
+        # 转为灰度图
+        if len(image1.shape) == 3:
+            gray1 = ImageProcessor.rgb_to_gray_manual(image1)
+        else:
+            gray1 = image1.copy()
+        
+        if len(image2.shape) == 3:
+            gray2 = ImageProcessor.rgb_to_gray_manual(image2)
+        else:
+            gray2 = image2.copy()
+        
+        # 确保输入为uint8类型
+        if gray1.dtype != np.uint8:
+            gray1 = np.clip(gray1, 0, 255).astype(np.uint8)
+        if gray2.dtype != np.uint8:
+            gray2 = np.clip(gray2, 0, 255).astype(np.uint8)
+        
+        # 检测特征点和计算描述符
+        keypoints1, descriptors1 = sift.detectAndCompute(gray1, None)
+        keypoints2, descriptors2 = sift.detectAndCompute(gray2, None)
+        
+        # 如果没有检测到特征点，返回错误信息
+        if descriptors1 is None or descriptors2 is None:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'No keypoints detected', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, 0
+        
+        # 创建FLANN匹配器
+        FLANN_INDEX_KDTREE = 1
+        index_params: dict[str, int | float | str | bool] = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        search_params: dict[str, int | float | str | bool] = dict(checks=50)
+        flann = cv2.FlannBasedMatcher(index_params, search_params)
+        
+        # 匹配描述符
+        matches = flann.knnMatch(descriptors1, descriptors2, k=2)
+        
+        # 应用最近邻比率测试
+        good_matches = []
+        for match_pair in matches:
+            if len(match_pair) == 2:
+                m, n = match_pair
+                if m.distance < nn_ratio * n.distance:
+                    good_matches.append(m)
+        
+        # 绘制匹配结果
+        result_image = cv2.drawMatches(image1, keypoints1, image2, keypoints2, 
+                                      good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        # 如果返回None，创建一个新的图像
+        if result_image is None:
+            result_image = np.zeros((max(image1.shape[0], image2.shape[0]), 
+                                   image1.shape[1] + image2.shape[1], 3), dtype=np.uint8)
+        
+        return result_image, len(good_matches)
+    
+    @staticmethod
+    def panoramic_stitching(image1, image2, ransac_threshold=5.0, alpha_blend=0.5):
+        """
+        全景图像拼接
+        参数:
+            image1: 第一张图像
+            image2: 第二张图像
+            ransac_threshold: RANSAC阈值
+            alpha_blend: Alpha混合系数
+        返回:
+            result_image: 拼接结果图像
+            stitching_info: 拼接信息
+        """
+        # 检查是否支持SIFT
+        sift_available = False
+        sift = None
+        
+        # 尝试不同的SIFT创建方法
+        try:
+            sift = cv2.SIFT_create()
+            sift_available = True
+        except AttributeError:
+            try:
+                sift = cv2.xfeatures2d.SIFT_create()
+                sift_available = True
+            except AttributeError:
+                pass
+        
+        # 如果SIFT不可用，返回错误信息
+        if not sift_available or sift is None:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'SIFT not available', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, {'status': 'SIFT not available', 'matches': 0, 'inliers': 0}
+        
+        # 转为灰度图
+        if len(image1.shape) == 3:
+            gray1 = ImageProcessor.rgb_to_gray_manual(image1)
+        else:
+            gray1 = image1.copy()
+        
+        if len(image2.shape) == 3:
+            gray2 = ImageProcessor.rgb_to_gray_manual(image2)
+        else:
+            gray2 = image2.copy()
+        
+        # 确保输入为uint8类型
+        if gray1.dtype != np.uint8:
+            gray1 = np.clip(gray1, 0, 255).astype(np.uint8)
+        if gray2.dtype != np.uint8:
+            gray2 = np.clip(gray2, 0, 255).astype(np.uint8)
+        
+        # 检测特征点和计算描述符
+        keypoints1, descriptors1 = sift.detectAndCompute(gray1, None)
+        keypoints2, descriptors2 = sift.detectAndCompute(gray2, None)
+        
+        # 如果没有检测到特征点，返回错误信息
+        if descriptors1 is None or descriptors2 is None:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'No keypoints detected', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, {'status': 'No keypoints detected', 'matches': 0, 'inliers': 0}
+        
+        # 创建FLANN匹配器
+        FLANN_INDEX_KDTREE = 1
+        index_params: dict[str, int | float | str | bool] = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+        search_params: dict[str, int | float | str | bool] = dict(checks=50)
+        flann = cv2.FlannBasedMatcher(index_params, search_params)
+        
+        # 匹配描述符
+        matches = flann.knnMatch(descriptors1, descriptors2, k=2)
+        
+        # 应用最近邻比率测试
+        good_matches = []
+        for match_pair in matches:
+            if len(match_pair) == 2:
+                m, n = match_pair
+                if m.distance < 0.8 * n.distance:  # 固定比率0.8
+                    good_matches.append(m)
+        
+        # 如果匹配点太少，返回错误信息
+        if len(good_matches) < 4:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'Not enough matches', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, {'status': 'Not enough matches', 'matches': len(good_matches), 'inliers': 0}
+        
+        # 提取匹配点坐标
+        src_pts_list = []
+        dst_pts_list = []
+        for m in good_matches:
+            src_pts_list.append([float(keypoints1[m.queryIdx].pt[0]), float(keypoints1[m.queryIdx].pt[1])])
+            dst_pts_list.append([float(keypoints2[m.trainIdx].pt[0]), float(keypoints2[m.trainIdx].pt[1])])
+        src_pts = np.float32(src_pts_list).reshape(-1, 1, 2)
+        dst_pts = np.float32(dst_pts_list).reshape(-1, 1, 2)
+        
+        # 使用RANSAC估计单应矩阵
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, ransac_threshold)
+        
+        # 如果无法计算单应矩阵，返回错误信息
+        if H is None:
+            result_image = image1.copy()
+            if len(result_image.shape) == 2:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_GRAY2BGR)
+            elif result_image.shape[2] == 4:
+                result_image = cv2.cvtColor(result_image, cv2.COLOR_BGRA2BGR)
+            
+            cv2.putText(result_image, 'Homography failed', (50, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            return result_image, {'status': 'Homography failed', 'matches': len(good_matches), 'inliers': 0}
+        
+        # 计算内点数
+        inliers = np.sum(mask)
+        
+        # 透视变换第一张图像
+        height1, width1 = image1.shape[:2]
+        height2, width2 = image2.shape[:2]
+        
+        # 计算变换后图像的边界
+        corners = np.float32([[0, 0], [0, height1-1], [width1-1, height1-1], [width1-1, 0]]).reshape(-1, 1, 2)
+        corners_transformed = cv2.perspectiveTransform(corners, H)
+        
+        # 计算拼接图像的边界
+        all_corners = np.concatenate((corners_transformed, np.float32([[0, 0], [0, height2-1], [width2-1, height2-1], [width2-1, 0]]).reshape(-1, 1, 2)), axis=0)
+        
+        # 获取边界框
+        x_min, y_min = np.int32(all_corners.min(axis=0).ravel() - 0.5)
+        x_max, y_max = np.int32(all_corners.max(axis=0).ravel() + 0.5)
+        
+        # 计算平移矩阵
+        translation = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]])
+        
+        # 应用透视变换和平移
+        result_height = y_max - y_min
+        result_width = x_max - x_min
+        
+        # 变换第一张图像
+        transformed_img1 = cv2.warpPerspective(image1, translation @ H, (result_width, result_height))
+        
+        # 创建结果图像
+        result_image = np.zeros((result_height, result_width, 3), dtype=np.uint8)
+        
+        # 将第二张图像放置在结果图像中
+        y_offset = -y_min
+        x_offset = -x_min
+        
+        # 确保第二张图像在边界内
+        if y_offset >= 0 and x_offset >= 0:
+            h2_clip = min(height2, result_height - y_offset)
+            w2_clip = min(width2, result_width - x_offset)
+            
+            if h2_clip > 0 and w2_clip > 0:
+                # 将第二张图像复制到结果图像中
+                if len(image2.shape) == 2:
+                    # 灰度图转为3通道
+                    img2_rgb = cv2.cvtColor(image2, cv2.COLOR_GRAY2BGR)
+                elif image2.shape[2] == 4:
+                    # 4通道转为3通道
+                    img2_rgb = cv2.cvtColor(image2, cv2.COLOR_BGRA2BGR)
+                else:
+                    img2_rgb = image2
+                
+                result_image[y_offset:y_offset+h2_clip, x_offset:x_offset+w2_clip] = img2_rgb[:h2_clip, :w2_clip]
+        
+        # Alpha混合重叠区域
+        # 创建掩码标识重叠区域
+        overlap_mask = np.zeros((result_height, result_width), dtype=np.uint8)
+        
+        # 标记第二张图像区域
+        if y_offset >= 0 and x_offset >= 0:
+            h2_clip = min(height2, result_height - y_offset)
+            w2_clip = min(width2, result_width - x_offset)
+            
+            if h2_clip > 0 and w2_clip > 0:
+                overlap_mask[y_offset:y_offset+h2_clip, x_offset:x_offset+w2_clip] = 255
+        
+        # 标记第一张图像变换后的区域
+        transformed_mask = np.zeros((result_height, result_width), dtype=np.uint8)
+        transformed_mask[np.any(transformed_img1 > 0, axis=2)] = 255
+        
+        # 找到重叠区域
+        overlap_region = cv2.bitwise_and(overlap_mask, transformed_mask)
+        
+        # 在重叠区域应用Alpha混合
+        if np.any(overlap_region > 0):
+            # 获取重叠区域的坐标
+            overlap_indices = np.where(overlap_region > 0)
+            
+            # 应用Alpha混合
+            for i in range(len(overlap_indices[0])):
+                y, x = overlap_indices[0][i], overlap_indices[1][i]
+                # 确保坐标在有效范围内
+                if 0 <= y < result_image.shape[0] and 0 <= x < result_image.shape[1]:
+                    if np.any(transformed_img1[y, x] > 0):  # 只混合非黑色区域
+                        result_image[y, x] = alpha_blend * transformed_img1[y, x] + (1 - alpha_blend) * result_image[y, x]
+        
+        # 将变换后的第一张图像非重叠区域复制到结果图像
+        non_overlap_mask = cv2.bitwise_and(transformed_mask, cv2.bitwise_not(overlap_mask))
+        non_overlap_indices = np.where(non_overlap_mask > 0)
+        
+        for i in range(len(non_overlap_indices[0])):
+            y, x = non_overlap_indices[0][i], non_overlap_indices[1][i]
+            # 确保坐标在有效范围内
+            if 0 <= y < result_image.shape[0] and 0 <= x < result_image.shape[1]:
+                result_image[y, x] = transformed_img1[y, x]
+        
+        # 裁剪黑色边缘
+        # 找到有效区域的边界框
+        gray_result = cv2.cvtColor(result_image, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(gray_result, 1, 255, cv2.THRESH_BINARY)
+        
+        # 查找轮廓
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if len(contours) > 0:
+            # 获取最大轮廓的边界框
+            max_contour = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(max_contour)
+            
+            # 裁剪结果图像
+            result_image = result_image[y:y+h, x:x+w]
+        
+        stitching_info = {
+            'status': 'Success',
+            'matches': len(good_matches),
+            'inliers': int(inliers)
+        }
+        
+        return result_image, stitching_info
+    
+    @staticmethod
+    def algorithm_performance_comparison(image):
+        """
+        算法性能对比
+        参数:
+            image: 输入图像
+        返回:
+            comparison_results: 对比结果
+        """
+        import time
+        
+        comparison_results = {}
+        
+        # Harris角点检测性能测试
+        start_time = time.time()
+        harris_result, harris_corners = ImageProcessor.harris_corner_detection(image, 0.04)
+        harris_time = (time.time() - start_time) * 1000  # 转换为毫秒
+        
+        # Shi-Tomasi角点检测性能测试
+        start_time = time.time()
+        shi_tomasi_result, shi_tomasi_corners = ImageProcessor.shi_tomasi_detection(image, 100, 0.01, 10)
+        shi_tomasi_time = (time.time() - start_time) * 1000  # 转换为毫秒
+        
+        # SIFT特征点检测性能测试
+        start_time = time.time()
+        sift_result, sift_keypoints = ImageProcessor.sift_detection(image)
+        sift_time = (time.time() - start_time) * 1000  # 转换为毫秒
+        
+        # 计算噪声鲁棒性（简化计算）
+        # 这里我们使用特征点数量的变化率作为噪声鲁棒性的近似
+        harris_robustness = len(harris_corners) / max(harris_time, 1)  # 特征点数/时间
+        shi_tomasi_robustness = len(shi_tomasi_corners) / max(shi_tomasi_time, 1)
+        sift_robustness = len(sift_keypoints) / max(sift_time, 1)
+        
+        comparison_results = {
+            'Harris': {
+                'time': harris_time,
+                'points': len(harris_corners),
+                'robustness': harris_robustness
+            },
+            'Shi-Tomasi': {
+                'time': shi_tomasi_time,
+                'points': len(shi_tomasi_corners),
+                'robustness': shi_tomasi_robustness
+            },
+            'SIFT': {
+                'time': sift_time,
+                'points': len(sift_keypoints),
+                'robustness': sift_robustness
+            }
+        }
+        
+        return comparison_results
